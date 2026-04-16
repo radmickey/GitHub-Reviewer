@@ -45,6 +45,11 @@ class AnthropicProvider(LLMProvider):
                 )
                 if r.status_code == 429:
                     wait = int(r.headers.get("retry-after", 2 ** attempt))
+                    if wait > 60:
+                        raise RuntimeError(
+                            f"Groq rate limit: лимит исчерпан, сброс через {wait // 60} мин. "
+                            f"Попробуй позже."
+                        )
                     log.warning("Rate limit (429), ждём %ds (попытка %d/%d)...", wait, attempt + 1, MAX_RETRIES)
                     await asyncio.sleep(wait)
                     continue
@@ -79,6 +84,11 @@ class OpenAIProvider(LLMProvider):
                 )
                 if r.status_code == 429:
                     wait = int(r.headers.get("retry-after", 2 ** attempt))
+                    if wait > 60:
+                        raise RuntimeError(
+                            f"Groq rate limit: лимит исчерпан, сброс через {wait // 60} мин. "
+                            f"Попробуй позже."
+                        )
                     log.warning("Rate limit (429), ждём %ds (попытка %d/%d)...", wait, attempt + 1, MAX_RETRIES)
                     await asyncio.sleep(wait)
                     continue
