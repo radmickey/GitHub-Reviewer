@@ -119,14 +119,14 @@ async def webhook(request: Request):
         for f in files:
             log.info("Reviewing file: %s (%d chars)", f["filename"], len(f["diff"]))
             file_prompt = build_file_prompt(f["filename"], f["diff"], readme, extra)
-            file_review = await provider.complete(file_prompt)
+            file_review = await provider.complete(file_prompt, max_tokens=1024)
             file_reviews.append({"filename": f["filename"], "review": file_review})
             log.info("Done: %s", f["filename"])
 
         # Финальная агрегация
         log.info("Building summary from %d file reviews...", len(file_reviews))
         summary_prompt = build_summary_prompt(file_reviews, readme, extra)
-        review = await provider.complete(summary_prompt)
+        review = await provider.complete(summary_prompt, max_tokens=4096)
         log.info("Got final review: %d chars", len(review))
 
         skipped_note = ""

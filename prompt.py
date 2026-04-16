@@ -1,4 +1,4 @@
-MAX_FILE_DIFF = 6000  # ~1500 токенов, с запасом для Groq free tier
+MAX_FILE_DIFF = 3000  # ~750 токенов входа, оставляем место для ответа
 
 
 def build_file_prompt(filename: str, diff: str, readme: str, extra: str) -> str:

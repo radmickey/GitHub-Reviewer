@@ -9,7 +9,7 @@ MAX_RETRIES = 5
 
 
 class LLMProvider:
-    async def complete(self, prompt: str) -> str:
+    async def complete(self, prompt: str, max_tokens: int = 2048) -> str:
         raise NotImplementedError
 
 
@@ -31,7 +31,7 @@ class AnthropicProvider(LLMProvider):
             headers["x-api-key"] = self.api_key
         return headers
 
-    async def complete(self, prompt: str) -> str:
+    async def complete(self, prompt: str, max_tokens: int = 2048) -> str:
         async with httpx.AsyncClient(timeout=120) as client:
             for attempt in range(MAX_RETRIES):
                 r = await client.post(
@@ -39,7 +39,7 @@ class AnthropicProvider(LLMProvider):
                     headers=self._headers(),
                     json={
                         "model": self.model,
-                        "max_tokens": 8192,
+                        "max_tokens": max_tokens,
                         "messages": [{"role": "user", "content": prompt}],
                     },
                 )
@@ -67,7 +67,7 @@ class OpenAIProvider(LLMProvider):
         self.base_url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com")
         self.model = os.environ.get("OPENAI_MODEL", "gpt-4o")
 
-    async def complete(self, prompt: str) -> str:
+    async def complete(self, prompt: str, max_tokens: int = 2048) -> str:
         async with httpx.AsyncClient(timeout=120) as client:
             for attempt in range(MAX_RETRIES):
                 r = await client.post(
@@ -78,7 +78,7 @@ class OpenAIProvider(LLMProvider):
                     },
                     json={
                         "model": self.model,
-                        "max_tokens": 8192,
+                        "max_tokens": max_tokens,
                         "messages": [{"role": "user", "content": prompt}],
                     },
                 )
