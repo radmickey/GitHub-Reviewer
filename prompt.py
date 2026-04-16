@@ -1,15 +1,15 @@
-MAX_FILE_DIFF = 15000  # ~3750 токенов, безопасно для Groq
+MAX_FILE_DIFF = 6000  # ~1500 токенов, с запасом для Groq free tier
 
 
 def build_file_prompt(filename: str, diff: str, readme: str, extra: str) -> str:
     if len(diff) > MAX_FILE_DIFF:
         diff = diff[:MAX_FILE_DIFF] + f"\n\n... [diff обрезан: первые {MAX_FILE_DIFF} из {len(diff)} символов]"
 
-    readme_block = f"\n## README задания\n{readme[:2000]}\n" if readme else ""
+    # README не включаем в пофайловые запросы — только в финальный, чтобы не раздувать промпт
     extra_block = f"\n## Дополнительная инструкция\n{extra}\n" if extra else ""
 
     return f"""Ты — опытный преподаватель C++. Проанализируй один файл из лабораторной работы студента.
-{extra_block}{readme_block}
+{extra_block}
 ## Файл: {filename}
 
 {diff}
