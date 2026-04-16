@@ -25,9 +25,14 @@ def build_file_prompt(filename: str, diff: str, readme: str, extra: str) -> str:
 """
 
 
+MAX_FILE_REVIEW_IN_SUMMARY = 800  # символов на один файл в summary-запросе
+
+
 def build_summary_prompt(file_reviews: list[dict], readme: str, extra: str) -> str:
     reviews_block = "\n\n".join(
-        f"### Файл: {r['filename']}\n{r['review']}" for r in file_reviews
+        f"### Файл: {r['filename']}\n{r['review'][:MAX_FILE_REVIEW_IN_SUMMARY]}"
+        + ("..." if len(r['review']) > MAX_FILE_REVIEW_IN_SUMMARY else "")
+        for r in file_reviews
     )
     readme_block = f"\n## README задания\n{readme[:2000]}\n" if readme else ""
     extra_block = f"\n## Дополнительная инструкция\n{extra}\n" if extra else ""
