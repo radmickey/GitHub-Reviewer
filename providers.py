@@ -1,8 +1,11 @@
+import asyncio
 import httpx
 import logging
 import os
 
 log = logging.getLogger(__name__)
+
+MAX_RETRIES = 5
 
 
 class LLMProvider:
@@ -30,20 +33,27 @@ class AnthropicProvider(LLMProvider):
 
     async def complete(self, prompt: str) -> str:
         async with httpx.AsyncClient(timeout=120) as client:
-            r = await client.post(
-                f"{self.base_url.rstrip('/')}/v1/messages",
-                headers=self._headers(),
-                json={
-                    "model": self.model,
-                    "max_tokens": 8192,
-                    "messages": [{"role": "user", "content": prompt}],
-                },
-            )
-            r.raise_for_status()
-            data = r.json()
-            if "content" not in data:
-                raise ValueError(f"Unexpected Anthropic response: {data}")
-            return data["content"][0]["text"]
+            for attempt in range(MAX_RETRIES):
+                r = await client.post(
+                    f"{self.base_url.rstrip('/')}/v1/messages",
+                    headers=self._headers(),
+                    json={
+                        "model": self.model,
+                        "max_tokens": 8192,
+                        "messages": [{"role": "user", "content": prompt}],
+                    },
+                )
+                if r.status_code == 429:
+                    wait = int(r.headers.get("retry-after", 2 ** attempt))
+                    log.warning("Rate limit (429), ждём %ds (попытка %d/%d)...", wait, attempt + 1, MAX_RETRIES)
+                    await asyncio.sleep(wait)
+                    continue
+                r.raise_for_status()
+                data = r.json()
+                if "content" not in data:
+                    raise ValueError(f"Unexpected Anthropic response: {data}")
+                return data["content"][0]["text"]
+            raise RuntimeError("Превышено количество попыток после rate limit")
 
 
 class OpenAIProvider(LLMProvider):
@@ -54,23 +64,30 @@ class OpenAIProvider(LLMProvider):
 
     async def complete(self, prompt: str) -> str:
         async with httpx.AsyncClient(timeout=120) as client:
-            r = await client.post(
-                f"{self.base_url.rstrip('/')}/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": self.model,
-                    "max_tokens": 8192,
-                    "messages": [{"role": "user", "content": prompt}],
-                },
-            )
-            r.raise_for_status()
-            data = r.json()
-            if "choices" not in data:
-                raise ValueError(f"Unexpected OpenAI response: {data}")
-            return data["choices"][0]["message"]["content"]
+            for attempt in range(MAX_RETRIES):
+                r = await client.post(
+                    f"{self.base_url.rstrip('/')}/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "content-type": "application/json",
+                    },
+                    json={
+                        "model": self.model,
+                        "max_tokens": 8192,
+                        "messages": [{"role": "user", "content": prompt}],
+                    },
+                )
+                if r.status_code == 429:
+                    wait = int(r.headers.get("retry-after", 2 ** attempt))
+                    log.warning("Rate limit (429), ждём %ds (попытка %d/%d)...", wait, attempt + 1, MAX_RETRIES)
+                    await asyncio.sleep(wait)
+                    continue
+                r.raise_for_status()
+                data = r.json()
+                if "choices" not in data:
+                    raise ValueError(f"Unexpected OpenAI response: {data}")
+                return data["choices"][0]["message"]["content"]
+            raise RuntimeError("Превышено количество попыток после rate limit")
 
 
 def get_provider() -> LLMProvider:
