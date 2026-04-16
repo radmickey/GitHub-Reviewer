@@ -47,25 +47,22 @@ def _filter_files(files: list[dict]) -> tuple[list[dict], list[str]]:
     return kept, skipped
 
 
-def _build_diff(files: list[dict]) -> str:
-    parts = []
-    for f in files:
-        filename = f["filename"]
-        patch = f.get("patch")
-        if not patch:
-            status = f.get("status", "modified")
-            parts.append(f"diff --git a/{filename} b/{filename}\n# {status}, no patch (binary or too large)\n")
-        else:
-            parts.append(
-                f"diff --git a/{filename} b/{filename}\n"
-                f"--- a/{filename}\n"
-                f"+++ b/{filename}\n"
-                f"{patch}\n"
-            )
-    return "".join(parts)
+def _build_file_diff(f: dict) -> str:
+    filename = f["filename"]
+    patch = f.get("patch")
+    if not patch:
+        status = f.get("status", "modified")
+        return f"diff --git a/{filename} b/{filename}\n# {status}, no patch (binary or too large)\n"
+    return (
+        f"diff --git a/{filename} b/{filename}\n"
+        f"--- a/{filename}\n"
+        f"+++ b/{filename}\n"
+        f"{patch}\n"
+    )
 
 
-async def get_pr_diff(owner: str, repo: str, pr_number: int) -> tuple[str, list[str]]:
+async def get_pr_files(owner: str, repo: str, pr_number: int) -> tuple[list[dict], list[str]]:
+    """Возвращает ([{"filename": str, "diff": str}], skipped_list)"""
     async with httpx.AsyncClient() as client:
         r = await client.get(
             f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}/files",
@@ -77,7 +74,8 @@ async def get_pr_diff(owner: str, repo: str, pr_number: int) -> tuple[str, list[
         )
         r.raise_for_status()
         kept, skipped = _filter_files(r.json())
-        return _build_diff(kept), skipped
+        files = [{"filename": f["filename"], "diff": _build_file_diff(f)} for f in kept]
+        return files, skipped
 
 
 async def get_readme(owner: str, repo: str) -> str:

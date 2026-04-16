@@ -23,8 +23,8 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 try:
-    from github import get_pr_diff, get_readme, post_comment, check_github_config
-    from prompt import build_prompt
+    from github import get_pr_files, get_readme, post_comment, check_github_config
+    from prompt import build_file_prompt, build_summary_prompt
     from providers import get_provider
 except ImportError as e:
     log.error("Failed to import local module: %s", e)
@@ -105,21 +105,36 @@ async def webhook(request: Request):
     log.info("Processing PR %s/%s#%s by %s", owner, repo, pr_number, commenter)
 
     try:
-        log.info("Fetching diff and README...")
-        (diff, skipped), readme = await asyncio.gather(
-            get_pr_diff(owner, repo, pr_number),
+        log.info("Fetching files and README...")
+        (files, skipped), readme = await asyncio.gather(
+            get_pr_files(owner, repo, pr_number),
             get_readme(owner, repo),
         )
-        log.info("Diff: %d chars | Skipped files: %d | README: %s", len(diff), len(skipped), "yes" if readme else "no")
+        log.info("Files: %d | Skipped: %d | README: %s", len(files), len(skipped), "yes" if readme else "no")
 
-        log.info("Calling LLM...")
         extra = comment_body.replace("@review", "").strip()
-        prompt = build_prompt(diff, skipped, readme, extra)
-        review = await provider.complete(prompt)
-        log.info("Got review: %d chars", len(review))
+
+        # Ревью каждого файла отдельно
+        file_reviews = []
+        for f in files:
+            log.info("Reviewing file: %s (%d chars)", f["filename"], len(f["diff"]))
+            file_prompt = build_file_prompt(f["filename"], f["diff"], readme, extra)
+            file_review = await provider.complete(file_prompt)
+            file_reviews.append({"filename": f["filename"], "review": file_review})
+            log.info("Done: %s", f["filename"])
+
+        # Финальная агрегация
+        log.info("Building summary from %d file reviews...", len(file_reviews))
+        summary_prompt = build_summary_prompt(file_reviews, readme, extra)
+        review = await provider.complete(summary_prompt)
+        log.info("Got final review: %d chars", len(review))
+
+        skipped_note = ""
+        if skipped:
+            skipped_note = f"\n\n> ⚠️ Пропущены файлы: {', '.join(skipped)}"
 
         log.info("Posting comment to PR...")
-        await post_comment(owner, repo, pr_number, f"## 🤖 Code Review\n\n{review}")
+        await post_comment(owner, repo, pr_number, f"## 🤖 Code Review\n\n{review}{skipped_note}")
         log.info("Done")
 
     except Exception as e:
