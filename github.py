@@ -17,6 +17,10 @@ IGNORE_PATTERNS = [
     ".log", ".cache", ".tmp",
     # Большие data-файлы
     ".csv", ".json", ".xml", ".bin", ".dat",
+    # Конфиги и служебные файлы — не несут логики
+    ".gitignore", ".gitattributes", ".clang-format", ".clang-tidy",
+    "CMakeLists.txt", ".cmake", "Makefile", "makefile",
+    "LICENSE", "LICENSE.md", ".editorconfig",
 ]
 
 
