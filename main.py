@@ -104,49 +104,51 @@ async def webhook(request: Request):
 
     log.info("Processing PR %s/%s#%s by %s", owner, repo, pr_number, commenter)
 
-    try:
-        log.info("Fetching files and README...")
-        (files, skipped), readme = await asyncio.gather(
-            get_pr_files(owner, repo, pr_number),
-            get_readme(owner, repo),
-        )
-        log.info("Files: %d | Skipped: %d | README: %s", len(files), len(skipped), "yes" if readme else "no")
+    async def process():
+        try:
+            log.info("Fetching files and README...")
+            (files, skipped), readme = await asyncio.gather(
+                get_pr_files(owner, repo, pr_number),
+                get_readme(owner, repo),
+            )
+            log.info("Files: %d | Skipped: %d | README: %s", len(files), len(skipped), "yes" if readme else "no")
 
-        extra = comment_body.replace("@review", "").strip()
+            extra = comment_body.replace("@review", "").strip()
 
-        # Параллельное ревью файлов (макс. 3 одновременно)
-        semaphore = asyncio.Semaphore(3)
+            # Параллельное ревью файлов (макс. 3 одновременно)
+            semaphore = asyncio.Semaphore(3)
 
-        async def review_file(f: dict) -> dict:
-            async with semaphore:
-                log.info("Reviewing file: %s (%d chars)", f["filename"], len(f["diff"]))
-                file_prompt = build_file_prompt(f["filename"], f["diff"], readme, extra)
-                file_review = await provider.complete(file_prompt, max_tokens=1024)
-                log.info("Done: %s", f["filename"])
-                return {"filename": f["filename"], "review": file_review}
+            async def review_file(f: dict) -> dict:
+                async with semaphore:
+                    log.info("Reviewing file: %s (%d chars)", f["filename"], len(f["diff"]))
+                    file_prompt = build_file_prompt(f["filename"], f["diff"], readme, extra)
+                    file_review = await provider.complete(file_prompt, max_tokens=1024)
+                    log.info("Done: %s", f["filename"])
+                    return {"filename": f["filename"], "review": file_review}
 
-        file_reviews = await asyncio.gather(*[review_file(f) for f in files])
+            file_reviews = await asyncio.gather(*[review_file(f) for f in files])
 
-        # Финальная агрегация
-        log.info("Building summary from %d file reviews...", len(file_reviews))
-        summary_prompt = build_summary_prompt(file_reviews, readme, extra)
-        review = await provider.complete(summary_prompt, max_tokens=4096)
-        log.info("Got final review: %d chars", len(review))
+            # Финальная агрегация
+            log.info("Building summary from %d file reviews...", len(file_reviews))
+            summary_prompt = build_summary_prompt(file_reviews, readme, extra)
+            review = await provider.complete(summary_prompt, max_tokens=4096)
+            log.info("Got final review: %d chars", len(review))
 
-        skipped_note = ""
-        if skipped:
-            skipped_note = f"\n\n> ⚠️ Пропущены файлы: {', '.join(skipped)}"
+            skipped_note = ""
+            if skipped:
+                skipped_note = f"\n\n> ⚠️ Пропущены файлы: {', '.join(skipped)}"
 
-        log.info("Posting comment to PR...")
-        await post_comment(owner, repo, pr_number, f"## 🤖 Code Review\n\n{review}{skipped_note}")
-        log.info("Done")
+            log.info("Posting comment to PR...")
+            await post_comment(owner, repo, pr_number, f"## 🤖 Code Review\n\n{review}{skipped_note}")
+            log.info("Done")
 
-    except Exception as e:
-        log.exception("Error processing PR %s/%s#%s", owner, repo, pr_number)
-        await post_comment(
-            owner, repo, pr_number,
-            f"## 🤖 Code Review\n\n❌ Произошла ошибка при обработке PR: `{e}`"
-        )
-        return {"status": "error"}
+        except Exception as e:
+            log.exception("Error processing PR %s/%s#%s", owner, repo, pr_number)
+            await post_comment(
+                owner, repo, pr_number,
+                f"## 🤖 Code Review\n\n❌ Произошла ошибка при обработке PR: `{e}`"
+            )
 
+    # Запускаем обработку в фоне — GitHub не ждёт
+    asyncio.create_task(process())
     return {"status": "ok"}
