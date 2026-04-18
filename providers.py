@@ -91,6 +91,7 @@ class OpenAIProvider(LLMProvider):
                     "model": self.model,
                     "max_tokens": max_tokens,
                     "messages": [{"role": "user", "content": prompt}],
+                    "chat_template_kwargs": {"thinking": False},
                 },
             )
             r.raise_for_status()
@@ -98,10 +99,10 @@ class OpenAIProvider(LLMProvider):
             if "choices" not in data:
                 raise ValueError(f"Unexpected OpenAI response: {data}")
             message = data["choices"][0]["message"]
-            # kimi-k2.5 и другие reasoning-модели могут возвращать ответ в разных полях
-            content = message.get("content") or message.get("reasoning_content") or message.get("text")
+            # kimi-k2.5 кладёт ответ в reasoning когда thinking включён
+            content = message.get("content") or message.get("reasoning") or message.get("reasoning_content") or message.get("text")
             if not content:
-                log.warning("Пустой ответ от модели, message: %s", message)
+                log.warning("Пустой ответ от модели, message keys: %s", list(message.keys()))
                 raise ValueError(f"Пустой ответ от модели: {message}")
             return content
 
