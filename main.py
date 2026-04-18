@@ -114,14 +114,18 @@ async def webhook(request: Request):
 
         extra = comment_body.replace("@review", "").strip()
 
-        # Ревью каждого файла отдельно
-        file_reviews = []
-        for f in files:
-            log.info("Reviewing file: %s (%d chars)", f["filename"], len(f["diff"]))
-            file_prompt = build_file_prompt(f["filename"], f["diff"], readme, extra)
-            file_review = await provider.complete(file_prompt, max_tokens=1024)
-            file_reviews.append({"filename": f["filename"], "review": file_review})
-            log.info("Done: %s", f["filename"])
+        # Параллельное ревью файлов (макс. 3 одновременно)
+        semaphore = asyncio.Semaphore(3)
+
+        async def review_file(f: dict) -> dict:
+            async with semaphore:
+                log.info("Reviewing file: %s (%d chars)", f["filename"], len(f["diff"]))
+                file_prompt = build_file_prompt(f["filename"], f["diff"], readme, extra)
+                file_review = await provider.complete(file_prompt, max_tokens=1024)
+                log.info("Done: %s", f["filename"])
+                return {"filename": f["filename"], "review": file_review}
+
+        file_reviews = await asyncio.gather(*[review_file(f) for f in files])
 
         # Финальная агрегация
         log.info("Building summary from %d file reviews...", len(file_reviews))
