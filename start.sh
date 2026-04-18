@@ -5,12 +5,13 @@ WEBHOOK_SECRET="${GITHUB_WEBHOOK_SECRET:-$(grep GITHUB_WEBHOOK_SECRET .env | cut
 
 # Запускаем uvicorn в фоне
 echo "🚀 Запускаем сервер..."
-uvicorn main:app --port 8000 &
+PORT="${PORT:-8001}"
+uvicorn main:app --port $PORT &
 UVICORN_PID=$!
 
 # Запускаем cloudflared и пишем лог во временный файл
 echo "🌐 Запускаем cloudflared..."
-cloudflared tunnel --url http://localhost:8000 2>&1 | tee /tmp/cloudflared.log &
+cloudflared tunnel --url http://localhost:$PORT 2>&1 | tee /tmp/cloudflared.log &
 CLOUDFLARED_PID=$!
 
 # Ждём пока появится URL (до 30 секунд)
