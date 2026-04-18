@@ -97,7 +97,13 @@ class OpenAIProvider(LLMProvider):
             data = r.json()
             if "choices" not in data:
                 raise ValueError(f"Unexpected OpenAI response: {data}")
-            return data["choices"][0]["message"]["content"]
+            message = data["choices"][0]["message"]
+            # kimi-k2.5 и другие reasoning-модели могут возвращать ответ в разных полях
+            content = message.get("content") or message.get("reasoning_content") or message.get("text")
+            if not content:
+                log.warning("Пустой ответ от модели, message: %s", message)
+                raise ValueError(f"Пустой ответ от модели: {message}")
+            return content
 
 
 def get_provider() -> LLMProvider:
