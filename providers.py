@@ -32,7 +32,7 @@ class AnthropicProvider(LLMProvider):
         return headers
 
     async def complete(self, prompt: str, max_tokens: int = 2048) -> str:
-        async with httpx.AsyncClient(timeout=120) as client:
+        async with httpx.AsyncClient(timeout=300) as client:
             for attempt in range(MAX_RETRIES):
                 r = await client.post(
                     f"{self.base_url.rstrip('/')}/v1/messages",
@@ -68,7 +68,7 @@ class OpenAIProvider(LLMProvider):
         self.model = os.environ.get("OPENAI_MODEL", "gpt-4o")
 
     async def complete(self, prompt: str, max_tokens: int = 2048) -> str:
-        async with httpx.AsyncClient(timeout=120) as client:
+        async with httpx.AsyncClient(timeout=300) as client:
             for attempt in range(MAX_RETRIES):
                 r = await client.post(
                     f"{self.base_url.rstrip('/')}/v1/chat/completions",
