@@ -126,7 +126,13 @@ async def webhook(request: Request):
                     log.info("Done: %s", f["filename"])
                     return {"filename": f["filename"], "review": file_review}
 
-            file_reviews = await asyncio.gather(*[review_file(f) for f in files])
+            results = await asyncio.gather(*[review_file(f) for f in files], return_exceptions=True)
+        file_reviews = []
+        for r in results:
+            if isinstance(r, Exception):
+                log.error("Ошибка при ревью файла: %s", r)
+            elif r and r.get("review"):
+                file_reviews.append(r)
 
             # Финальная агрегация
             log.info("Building summary from %d file reviews...", len(file_reviews))
