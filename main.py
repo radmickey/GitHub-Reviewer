@@ -116,7 +116,7 @@ async def webhook(request: Request):
             extra = comment_body.replace("@review", "").strip()
 
             # Параллельное ревью файлов (макс. 3 одновременно)
-            semaphore = asyncio.Semaphore(3)
+            semaphore = asyncio.Semaphore(10)
 
             async def review_file(f: dict) -> dict:
                 async with semaphore:
