@@ -8,6 +8,28 @@ log = logging.getLogger(__name__)
 MAX_RETRIES = 5
 
 
+async def _retry(client: httpx.AsyncClient, *args, **kwargs) -> httpx.Response:
+    """Отправляет POST с retry при 429 и 5xx ошибках."""
+    for attempt in range(MAX_RETRIES):
+        r = await client.post(*args, **kwargs)
+        if r.status_code == 429:
+            wait = int(r.headers.get("retry-after", 2 ** attempt))
+            if wait > 60:
+                raise RuntimeError(
+                    f"Rate limit: лимит исчерпан, сброс через {wait // 60} мин. Попробуй позже."
+                )
+            log.warning("Rate limit (429), ждём %ds (попытка %d/%d)...", wait, attempt + 1, MAX_RETRIES)
+            await asyncio.sleep(wait)
+            continue
+        if r.status_code in (502, 503, 504):
+            wait = 2 ** attempt
+            log.warning("Server error (%d), ждём %ds (попытка %d/%d)...", r.status_code, wait, attempt + 1, MAX_RETRIES)
+            await asyncio.sleep(wait)
+            continue
+        return r
+    raise RuntimeError("Превышено количество попыток после ошибок API")
+
+
 class LLMProvider:
     async def complete(self, prompt: str, max_tokens: int = 2048) -> str:
         raise NotImplementedError
@@ -33,32 +55,21 @@ class AnthropicProvider(LLMProvider):
 
     async def complete(self, prompt: str, max_tokens: int = 2048) -> str:
         async with httpx.AsyncClient(timeout=300) as client:
-            for attempt in range(MAX_RETRIES):
-                r = await client.post(
-                    f"{self.base_url.rstrip('/')}/v1/messages",
-                    headers=self._headers(),
-                    json={
-                        "model": self.model,
-                        "max_tokens": max_tokens,
-                        "messages": [{"role": "user", "content": prompt}],
-                    },
-                )
-                if r.status_code == 429:
-                    wait = int(r.headers.get("retry-after", 2 ** attempt))
-                    if wait > 60:
-                        raise RuntimeError(
-                            f"Groq rate limit: лимит исчерпан, сброс через {wait // 60} мин. "
-                            f"Попробуй позже."
-                        )
-                    log.warning("Rate limit (429), ждём %ds (попытка %d/%d)...", wait, attempt + 1, MAX_RETRIES)
-                    await asyncio.sleep(wait)
-                    continue
-                r.raise_for_status()
-                data = r.json()
-                if "content" not in data:
-                    raise ValueError(f"Unexpected Anthropic response: {data}")
-                return data["content"][0]["text"]
-            raise RuntimeError("Превышено количество попыток после rate limit")
+            r = await _retry(
+                client,
+                f"{self.base_url.rstrip('/')}/v1/messages",
+                headers=self._headers(),
+                json={
+                    "model": self.model,
+                    "max_tokens": max_tokens,
+                    "messages": [{"role": "user", "content": prompt}],
+                },
+            )
+            r.raise_for_status()
+            data = r.json()
+            if "content" not in data:
+                raise ValueError(f"Unexpected Anthropic response: {data}")
+            return data["content"][0]["text"]
 
 
 class OpenAIProvider(LLMProvider):
@@ -69,35 +80,24 @@ class OpenAIProvider(LLMProvider):
 
     async def complete(self, prompt: str, max_tokens: int = 2048) -> str:
         async with httpx.AsyncClient(timeout=300) as client:
-            for attempt in range(MAX_RETRIES):
-                r = await client.post(
-                    f"{self.base_url.rstrip('/')}/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "content-type": "application/json",
-                    },
-                    json={
-                        "model": self.model,
-                        "max_tokens": max_tokens,
-                        "messages": [{"role": "user", "content": prompt}],
-                    },
-                )
-                if r.status_code == 429:
-                    wait = int(r.headers.get("retry-after", 2 ** attempt))
-                    if wait > 60:
-                        raise RuntimeError(
-                            f"Groq rate limit: лимит исчерпан, сброс через {wait // 60} мин. "
-                            f"Попробуй позже."
-                        )
-                    log.warning("Rate limit (429), ждём %ds (попытка %d/%d)...", wait, attempt + 1, MAX_RETRIES)
-                    await asyncio.sleep(wait)
-                    continue
-                r.raise_for_status()
-                data = r.json()
-                if "choices" not in data:
-                    raise ValueError(f"Unexpected OpenAI response: {data}")
-                return data["choices"][0]["message"]["content"]
-            raise RuntimeError("Превышено количество попыток после rate limit")
+            r = await _retry(
+                client,
+                f"{self.base_url.rstrip('/')}/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": self.model,
+                    "max_tokens": max_tokens,
+                    "messages": [{"role": "user", "content": prompt}],
+                },
+            )
+            r.raise_for_status()
+            data = r.json()
+            if "choices" not in data:
+                raise ValueError(f"Unexpected OpenAI response: {data}")
+            return data["choices"][0]["message"]["content"]
 
 
 def get_provider() -> LLMProvider:
